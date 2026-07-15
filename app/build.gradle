@@ -4,8 +4,8 @@ plugins {
 }
 
 android {
-    namespace 'com.example.paymentverifier' // Make sure this matches your package
-    compileSdk 34 
+    namespace 'com.example.paymentverifier'
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.example.paymentverifier"
