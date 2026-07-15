@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shop Payment Monitor</title>
+<style>
+  :root {
+    --paper: #F6F3EC;
+    --ink: #1F2A24;
+    --confirmed-green: #1E5B3A;
+    --confirmed-green-light: #E6F1EB;
+    --gold-accent: #B08A3E;
+    --muted: #7A8079;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Courier New', 'Consolas', monospace;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 3px double var(--ink);
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+  }
+
+  header h1 {
+    font-size: 22px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  header .amharic {
+    font-size: 14px;
+    color: var(--muted);
+    font-family: 'Nyala', 'Noto Sans Ethiopic', sans-serif;
+  }
+
+  #clock {
+    font-size: 14px;
+    color: var(--muted);
+  }
+
+  #status-bar {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--confirmed-green);
+    display: inline-block;
+  }
+
+  #feed {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .payment-card {
+    background: #FFFFFF;
+    border: 1px solid #DDD7C8;
+    border-left: 6px solid var(--confirmed-green);
+    padding: 20px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: slideIn 0.4s ease-out;
+  }
+
+  .payment-card.newest {
+    border-left-color: var(--gold-accent);
+    background: var(--confirmed-green-light);
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .amount {
+    font-size: 32px;
+    font-weight: bold;
+    color: var(--confirmed-green);
+  }
+
+  .details {
+    text-align: right;
+  }
+
+  .payer {
+    font-size: 16px;
+    color: var(--ink);
+  }
+
+  .meta {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .checkmark {
+    font-size: 20px;
+    margin-right: 12px;
+  }
+
+  #empty-state {
+    text-align: center;
+    color: var(--muted);
+    padding: 60px 20px;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Shop Payment Monitor</h1>
+    <div class="amharic">የክፍያ ማረጋገጫ ማሳያ</div>
+  </div>
+  <div id="clock"></div>
+</header>
+
+<div id="status-bar">
+  <span class="dot"></span>
+  <span>Live — watching for CBE / Telebirr confirmations</span>
+</div>
+
+<div id="feed">
+  <div id="empty-state">No payments yet today. New payments will appear here automatically.</div>
+</div>
+
+<!-- Firebase SDKs -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import {
+    getDatabase, ref, query, orderByChild, limitToLast, onValue
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  // TODO: replace with your own Firebase project config
+  // (Firebase Console -> Project Settings -> General -> Your apps -> Web app)
+  // IMPORTANT: for Realtime Database you also need "databaseURL" —
+  // find it at the top of the Realtime Database page in the console,
+  // looks like: https://YOUR_PROJECT-default-rtdb.firebaseio.com
+  const firebaseConfig = {
+    apiKey: "AIzaSyDeO1gZ8a7weMl2dYLaegjRRPk11U7BGe4",
+    authDomain: "payment-verifier-44099.firebaseapp.com",
+    databaseURL: "https://payment-verifier-44099-default-rtdb.firebaseio.com",
+    projectId: "payment-verifier-44099",
+    storageBucket: "payment-verifier-44099.firebasestorage.app",
+    messagingSenderId: "175284774843",
+    appId: "1:175284774843:web:94b439a93b6115e740469e"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  const feedEl = document.getElementById("feed");
+  const emptyStateEl = document.getElementById("empty-state");
+  let firstLoad = true;
+  let lastCount = 0;
+
+  const transactionsRef = query(ref(db, "transactions"), orderByChild("timestamp"), limitToLast(20));
+
+  onValue(transactionsRef, (snapshot) => {
+    if (!snapshot.exists()) return;
+
+    const entries = [];
+    snapshot.forEach((child) => {
+      entries.push(child.val());
+    });
+
+    // Realtime Database returns oldest-first; flip so newest is on top
+    entries.reverse();
+
+    feedEl.innerHTML = "";
+    emptyStateEl.remove();
+
+    entries.forEach((data, index) => {
+      const card = document.createElement("div");
+      card.className = "payment-card" + (index === 0 ? " newest" : "");
+
+      const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      card.innerHTML = `
+        <div>
+          <span class="checkmark">✅</span>
+          <span class="amount">${data.amount} ETB</span>
+        </div>
+        <div class="details">
+          <div class="payer">from ${data.payerName || 'Unknown'}</div>
+          <div class="meta">${data.source} · ${time} · Ref: ${data.txnId || 'N/A'}</div>
+        </div>
+      `;
+      feedEl.appendChild(card);
+    });
+
+    // Play a sound only when a genuinely new entry shows up after first load
+    if (!firstLoad && entries.length > lastCount) {
+      playAlertSound();
+    }
+    lastCount = entries.length;
+    firstLoad = false;
+  }, (error) => {
+    console.error("Realtime Database error:", error);
+    document.getElementById("status-bar").innerHTML =
+      '<span style="color:#B03A2E">⚠ Connection error — check internet</span>';
+  });
+
+  function playAlertSound() {
+    const audio = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAAAAAAAAAAAAAAAAAAAAAA==");
+    audio.play().catch(() => {});
+  }
+
+  function updateClock() {
+    document.getElementById("clock").textContent = new Date().toLocaleString();
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+</script>
+
+</body>
+</html>

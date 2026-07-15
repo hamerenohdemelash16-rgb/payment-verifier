@@ -1,0 +1,2 @@
+rootProject.name = "Payment Verifier"
+include ':app'
