@@ -5,6 +5,7 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
@@ -12,6 +13,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-plugins {
-    id 'com.google.gms.google-services' version '4.3.15' apply false
-}
+
+rootProject.name = 'payment-verifier'
