@@ -45,12 +45,14 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     private fun isPaymentSms(sender: String, body: String): Boolean {
-        val senderMatch = sender.contains("CBE", true) || sender.contains("telebirr", true)
-        val bodyMatch = body.contains("credited", true) ||
-                body.contains("received", true) ||
-                body.contains("deposit", true)
-        return senderMatch && bodyMatch
-    }
+    val senderMatch = sender.contains("CBE", true) ||
+            sender.contains("telebirr", true) ||
+            sender.trim() == "127"
+    val bodyMatch = body.contains("credited", true) ||
+            body.contains("received", true) ||
+            body.contains("deposit", true)
+    return senderMatch && bodyMatch
+}
 
     // Matches things like "ETB 150.00", "Birr 150", "150.00 ETB"
     private fun extractAmount(body: String): String? {
