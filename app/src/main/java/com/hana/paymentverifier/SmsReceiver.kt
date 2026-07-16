@@ -66,12 +66,25 @@ class SmsReceiver : BroadcastReceiver() {
         } else null
     }
 
-    // Tries to grab a name after "from" — adjust once you see real SMS wording
-    private fun extractPayerName(body: String): String {
-        val pattern = Pattern.compile("from\\s+([A-Za-z ]{2,40})", Pattern.CASE_INSENSITIVE)
-        val matcher = pattern.matcher(body)
-        return if (matcher.find()) matcher.group(1)?.trim() ?: "Unknown" else "Unknown"
+    // Telebirr: "...from MULUKEN BELAY(2519****3999)..."  -> name comes right before "("
+// CBE:      "...from account 1**5595 (Tigist Wodajo Abebe)..." -> name is INSIDE the parentheses
+private fun extractPayerName(body: String): String {
+    // Try CBE format first (name inside parentheses, after "account")
+    val cbePattern = Pattern.compile("from account\\s+\\S+\\s*\\(([^)]+)\\)", Pattern.CASE_INSENSITIVE)
+    val cbeMatcher = cbePattern.matcher(body)
+    if (cbeMatcher.find()) {
+        return cbeMatcher.group(1)?.trim() ?: "Unknown"
     }
+
+    // Try Telebirr format (name right before an opening parenthesis)
+    val telebirrPattern = Pattern.compile("from\\s+([A-Za-z]+(?:\\s+[A-Za-z]+)*)\\s*\\(", Pattern.CASE_INSENSITIVE)
+    val telebirrMatcher = telebirrPattern.matcher(body)
+    if (telebirrMatcher.find()) {
+        return telebirrMatcher.group(1)?.trim() ?: "Unknown"
+    }
+
+    return "Unknown"
+}
 
     // Grabs a transaction/reference number if present (e.g. "Ref: ABC123456")
     private fun extractTxnId(body: String): String {
