@@ -34,24 +34,27 @@ class SmsReceiver : BroadcastReceiver() {
                 val amount = extractAmount(body)
                 val payerName = extractPayerName(body)
                 val txnId = extractTxnId(body)
-                val source = if (sender.contains("CBE", true)) "CBE" else "Telebirr"
+                val source = if (sender.contains("CBE", true) || body.contains("CBE", true) || body.contains("cbe.com.et", true)) "CBE" else "Telebirr"
 
                 if (amount != null) {
                     savePaymentToFirestore(source, amount, payerName, txnId, body)
                     showFullScreenAlert(context, source, amount, payerName)
                 }
             }
-        }
+            }
     }
 
-    private fun isPaymentSms(sender: String, body: String): Boolean {
+ private fun isPaymentSms(sender: String, body: String): Boolean {
     val senderMatch = sender.contains("CBE", true) ||
             sender.contains("telebirr", true) ||
             sender.trim() == "127"
     val bodyMatch = body.contains("credited", true) ||
             body.contains("received", true) ||
             body.contains("deposit", true)
-    return senderMatch && bodyMatch
+    val bodyNamesProvider = body.contains("telebirr", true) ||
+            body.contains("CBE", true) ||
+            body.contains("cbe.com.et", true)
+    return (senderMatch || bodyNamesProvider) && bodyMatch
 }
 
     // Matches things like "ETB 150.00", "Birr 150", "150.00 ETB"
