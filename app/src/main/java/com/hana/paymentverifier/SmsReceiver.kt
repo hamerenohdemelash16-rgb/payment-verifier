@@ -86,12 +86,24 @@ private fun extractPayerName(body: String): String {
     return "Unknown"
 }
 
-    // Grabs a transaction/reference number if present (e.g. "Ref: ABC123456")
-    private fun extractTxnId(body: String): String {
-        val pattern = Pattern.compile("(?:Ref|Reference|Txn|Transaction)[:\\s]*([A-Za-z0-9]{4,20})", Pattern.CASE_INSENSITIVE)
-        val matcher = pattern.matcher(body)
-        return if (matcher.find()) matcher.group(1) ?: "N/A" else "N/A"
+    // Telebirr: "...Your transaction number is DGB8QPUBWO..."
+// CBE: no explicit transaction number, but the receipt URL ends with a unique
+// code (e.g. ".../v2-hfHCxzWhzPvPbLQUcKY0") which works as a reference
+private fun extractTxnId(body: String): String {
+    val telebirrPattern = Pattern.compile("transaction number is\\s+([A-Za-z0-9]+)", Pattern.CASE_INSENSITIVE)
+    val telebirrMatcher = telebirrPattern.matcher(body)
+    if (telebirrMatcher.find()) {
+        return telebirrMatcher.group(1) ?: "N/A"
     }
+
+    val cbePattern = Pattern.compile("cbe\\.com\\.et/(\\S+)", Pattern.CASE_INSENSITIVE)
+    val cbeMatcher = cbePattern.matcher(body)
+    if (cbeMatcher.find()) {
+        return cbeMatcher.group(1) ?: "N/A"
+    }
+
+    return "N/A"
+}
 
     private fun savePaymentToFirestore(
         source: String,
