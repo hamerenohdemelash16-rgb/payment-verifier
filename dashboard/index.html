@@ -65,6 +65,35 @@
     display: inline-block;
   }
 
+  #login-screen {
+    text-align: center;
+    padding: 60px 20px;
+  }
+
+  #login-screen input {
+    padding: 10px;
+    margin: 6px;
+    width: 220px;
+    border: 1px solid #DDD7C8;
+    font-family: 'Courier New', 'Consolas', monospace;
+  }
+
+  #login-screen button {
+    padding: 10px 24px;
+    margin-top: 10px;
+    background: var(--confirmed-green);
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-family: 'Courier New', 'Consolas', monospace;
+  }
+
+  #login-error {
+    color: #B03A2E;
+    font-size: 12px;
+    margin-top: 10px;
+  }
+
   #feed {
     display: flex;
     flex-direction: column;
@@ -141,7 +170,14 @@
   <span>Live — watching for CBE / Telebirr confirmations</span>
 </div>
 
-<div id="feed">
+<div id="login-screen">
+  <p style="margin-bottom: 12px; color: var(--muted);">Enter password to view payments</p>
+  <input type="password" id="login-password" placeholder="Password"><br>
+  <button id="login-btn">Sign In</button>
+  <p id="login-error"></p>
+</div>
+
+<div id="feed" style="display:none;">
   <div id="empty-state">No payments yet today. New payments will appear here automatically.</div>
 </div>
 
@@ -155,11 +191,6 @@
     getAuth, signInWithEmailAndPassword
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
-  // TODO: replace with your own Firebase project config
-  // (Firebase Console -> Project Settings -> General -> Your apps -> Web app)
-  // IMPORTANT: for Realtime Database you also need "databaseURL" —
-  // find it at the top of the Realtime Database page in the console,
-  // looks like: https://YOUR_PROJECT-default-rtdb.firebaseio.com
   const firebaseConfig = {
     apiKey: "AIzaSyDeO1gZ8a7weMl2dYLaegjRRPk11U7BGe4",
     authDomain: "payment-verifier-44099.firebaseapp.com",
@@ -170,69 +201,77 @@
     appId: "1:175284774843:web:94b439a93b6115e740469e"
   };
 
-const app = initializeApp(firebaseConfig);
+  const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
   const auth = getAuth(app);
 
   const feedEl = document.getElementById("feed");
   const emptyStateEl = document.getElementById("empty-state");
+  const loginScreenEl = document.getElementById("login-screen");
   let firstLoad = true;
   let lastCount = 0;
 
-  signInWithEmailAndPassword(auth, "hamerenohdemelash16@gmail.com", "@hame0986")
-    .then(() => {
-      console.log("Signed in successfully");
+  document.getElementById("login-btn").addEventListener("click", () => {
+    const email = "hamerenohdemelash16@gmail.com";
+    const password = document.getElementById("login-password").value;
 
-      const transactionsRef = query(ref(db, "transactions"), orderByChild("timestamp"), limitToLast(20));
+    signInWithEmailAndPassword(auth, email, password)
+      .then(() => {
+        console.log("Signed in successfully");
+        loginScreenEl.style.display = "none";
+        feedEl.style.display = "flex";
 
-      onValue(transactionsRef, (snapshot) => {
-        if (!snapshot.exists()) return;
+        const transactionsRef = query(ref(db, "transactions"), orderByChild("timestamp"), limitToLast(20));
 
-        const entries = [];
-        snapshot.forEach((child) => {
-          entries.push(child.val());
+        onValue(transactionsRef, (snapshot) => {
+          if (!snapshot.exists()) return;
+
+          const entries = [];
+          snapshot.forEach((child) => {
+            entries.push(child.val());
+          });
+
+          entries.reverse();
+
+          feedEl.innerHTML = "";
+          if (emptyStateEl.parentNode) emptyStateEl.remove();
+
+          entries.forEach((data, index) => {
+            const card = document.createElement("div");
+            card.className = "payment-card" + (index === 0 ? " newest" : "");
+
+            const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            card.innerHTML = `
+              <div>
+                <span class="checkmark">✅</span>
+                <span class="amount">${data.amount} ETB</span>
+              </div>
+              <div class="details">
+                <div class="payer">from ${data.payerName || 'Unknown'}</div>
+                <div class="meta">${data.source} · ${time} · Ref: ${data.txnId || 'N/A'}</div>
+              </div>
+            `;
+            feedEl.appendChild(card);
+          });
+
+          if (!firstLoad && entries.length > lastCount) {
+            playAlertSound();
+          }
+          lastCount = entries.length;
+          firstLoad = false;
+        }, (error) => {
+          console.error("Realtime Database error:", error);
+          document.getElementById("status-bar").innerHTML =
+            '<span style="color:#B03A2E">⚠ Connection error — check internet</span>';
         });
-
-        entries.reverse();
-
-        feedEl.innerHTML = "";
-        if (emptyStateEl.parentNode) emptyStateEl.remove();
-
-        entries.forEach((data, index) => {
-          const card = document.createElement("div");
-          card.className = "payment-card" + (index === 0 ? " newest" : "");
-
-          const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-          card.innerHTML = `
-            <div>
-              <span class="checkmark">✅</span>
-              <span class="amount">${data.amount} ETB</span>
-            </div>
-            <div class="details">
-              <div class="payer">from ${data.payerName || 'Unknown'}</div>
-              <div class="meta">${data.source} · ${time} · Ref: ${data.txnId || 'N/A'}</div>
-            </div>
-          `;
-          feedEl.appendChild(card);
-        });
-
-        if (!firstLoad && entries.length > lastCount) {
-          playAlertSound();
-        }
-        lastCount = entries.length;
-        firstLoad = false;
-      }, (error) => {
-        console.error("Realtime Database error:", error);
-        document.getElementById("status-bar").innerHTML =
-          '<span style="color:#B03A2E">⚠ Connection error — check internet</span>';
+      })
+      .catch((error) => {
+        console.error("Sign-in failed:", error);
+        document.getElementById("login-error").textContent = "Wrong password";
       });
-    })
-    .catch((error) => {
-      console.error("Sign-in failed:", error);
-      document.getElementById("status-bar").innerHTML =
-        '<span style="color:#B03A2E">⚠ Auth failed — check credentials</span>';
-    });
+  });
+
   function playAlertSound() {
     const audio = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAAAAAAAAAAAAAAAAAAAAAA==");
     audio.play().catch(() => {});
