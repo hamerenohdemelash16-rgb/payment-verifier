@@ -151,6 +151,9 @@
   import {
     getDatabase, ref, query, orderByChild, limitToLast, onValue
   } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import {
+    getAuth, signInWithEmailAndPassword
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
   // TODO: replace with your own Firebase project config
   // (Firebase Console -> Project Settings -> General -> Your apps -> Web app)
@@ -167,8 +170,19 @@
     appId: "1:175284774843:web:94b439a93b6115e740469e"
   };
 
-  const app = initializeApp(firebaseConfig);
+ const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
+  const auth = getAuth(app);
+
+  signInWithEmailAndPassword(auth, "hamerenohdemelash16@gmail.com", "@hame0986")
+    .then(() => {
+      console.log("Signed in successfully");
+    })
+    .catch((error) => {
+      console.error("Sign-in failed:", error);
+      document.getElementById("status-bar").innerHTML =
+        '<span style="color:#B03A2E">⚠ Auth failed — check credentials</span>';
+    });
 
   const feedEl = document.getElementById("feed");
   const emptyStateEl = document.getElementById("empty-state");
