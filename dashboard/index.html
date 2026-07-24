@@ -170,72 +170,69 @@
     appId: "1:175284774843:web:94b439a93b6115e740469e"
   };
 
- const app = initializeApp(firebaseConfig);
+const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
   const auth = getAuth(app);
-
-  signInWithEmailAndPassword(auth, "hamerenohdemelash16@gmail.com", "@hame0986")
-    .then(() => {
-      console.log("Signed in successfully");
-    })
-    .catch((error) => {
-      console.error("Sign-in failed:", error);
-      document.getElementById("status-bar").innerHTML =
-        '<span style="color:#B03A2E">⚠ Auth failed — check credentials</span>';
-    });
 
   const feedEl = document.getElementById("feed");
   const emptyStateEl = document.getElementById("empty-state");
   let firstLoad = true;
   let lastCount = 0;
 
-  const transactionsRef = query(ref(db, "transactions"), orderByChild("timestamp"), limitToLast(20));
+  signInWithEmailAndPassword(auth, "hamerenohdemelash16@gmail.com", "@hame0986")
+    .then(() => {
+      console.log("Signed in successfully");
 
-  onValue(transactionsRef, (snapshot) => {
-    if (!snapshot.exists()) return;
+      const transactionsRef = query(ref(db, "transactions"), orderByChild("timestamp"), limitToLast(20));
 
-    const entries = [];
-    snapshot.forEach((child) => {
-      entries.push(child.val());
+      onValue(transactionsRef, (snapshot) => {
+        if (!snapshot.exists()) return;
+
+        const entries = [];
+        snapshot.forEach((child) => {
+          entries.push(child.val());
+        });
+
+        entries.reverse();
+
+        feedEl.innerHTML = "";
+        if (emptyStateEl.parentNode) emptyStateEl.remove();
+
+        entries.forEach((data, index) => {
+          const card = document.createElement("div");
+          card.className = "payment-card" + (index === 0 ? " newest" : "");
+
+          const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+          card.innerHTML = `
+            <div>
+              <span class="checkmark">✅</span>
+              <span class="amount">${data.amount} ETB</span>
+            </div>
+            <div class="details">
+              <div class="payer">from ${data.payerName || 'Unknown'}</div>
+              <div class="meta">${data.source} · ${time} · Ref: ${data.txnId || 'N/A'}</div>
+            </div>
+          `;
+          feedEl.appendChild(card);
+        });
+
+        if (!firstLoad && entries.length > lastCount) {
+          playAlertSound();
+        }
+        lastCount = entries.length;
+        firstLoad = false;
+      }, (error) => {
+        console.error("Realtime Database error:", error);
+        document.getElementById("status-bar").innerHTML =
+          '<span style="color:#B03A2E">⚠ Connection error — check internet</span>';
+      });
+    })
+    .catch((error) => {
+      console.error("Sign-in failed:", error);
+      document.getElementById("status-bar").innerHTML =
+        '<span style="color:#B03A2E">⚠ Auth failed — check credentials</span>';
     });
-
-    // Realtime Database returns oldest-first; flip so newest is on top
-    entries.reverse();
-
-    feedEl.innerHTML = "";
-    emptyStateEl.remove();
-
-    entries.forEach((data, index) => {
-      const card = document.createElement("div");
-      card.className = "payment-card" + (index === 0 ? " newest" : "");
-
-      const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-      card.innerHTML = `
-        <div>
-          <span class="checkmark">✅</span>
-          <span class="amount">${data.amount} ETB</span>
-        </div>
-        <div class="details">
-          <div class="payer">from ${data.payerName || 'Unknown'}</div>
-          <div class="meta">${data.source} · ${time} · Ref: ${data.txnId || 'N/A'}</div>
-        </div>
-      `;
-      feedEl.appendChild(card);
-    });
-
-    // Play a sound only when a genuinely new entry shows up after first load
-    if (!firstLoad && entries.length > lastCount) {
-      playAlertSound();
-    }
-    lastCount = entries.length;
-    firstLoad = false;
-  }, (error) => {
-    console.error("Realtime Database error:", error);
-    document.getElementById("status-bar").innerHTML =
-      '<span style="color:#B03A2E">⚠ Connection error — check internet</span>';
-  });
-
   function playAlertSound() {
     const audio = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAAAAAAAAAAAAAAAAAAAAAA==");
     audio.play().catch(() => {});
