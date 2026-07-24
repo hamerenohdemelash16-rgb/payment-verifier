@@ -12,6 +12,10 @@
     --confirmed-green-light: #E6F1EB;
     --gold-accent: #B08A3E;
     --muted: #7A8079;
+    --telebirr: #6B3FA0;
+    --telebirr-light: #F1EAF9;
+    --cbe: #1F5FA8;
+    --cbe-light: #E9F1FA;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -97,17 +101,108 @@
   #feed {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 32px;
+  }
+
+  .day-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .day-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 6px;
+  }
+
+  .day-header .day-title {
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .today-badge {
+    background: var(--confirmed-green);
+    color: white;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .day-header .day-date {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .grand-total-bar {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .columns {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .column {
+    flex: 1 1 300px;
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .column-header {
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .column-header.telebirr {
+    background: var(--telebirr-light);
+    color: var(--telebirr);
+    border-left: 4px solid var(--telebirr);
+  }
+
+  .column-header.cbe {
+    background: var(--cbe-light);
+    color: var(--cbe);
+    border-left: 4px solid var(--cbe);
+  }
+
+  .column-empty {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 16px;
+    text-align: center;
+    border: 1px dashed #DDD7C8;
   }
 
   .payment-card {
     background: #FFFFFF;
     border: 1px solid #DDD7C8;
     border-left: 6px solid var(--confirmed-green);
-    padding: 20px 24px;
+    padding: 14px 16px;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
+    gap: 10px;
     animation: slideIn 0.4s ease-out;
   }
 
@@ -122,29 +217,30 @@
   }
 
   .amount {
-    font-size: 32px;
+    font-size: 22px;
     font-weight: bold;
     color: var(--confirmed-green);
+    white-space: nowrap;
   }
 
-  .details {
+  .fields {
     text-align: right;
-  }
-
-  .payer {
-    font-size: 16px;
+    font-size: 12px;
     color: var(--ink);
   }
 
-  .meta {
-    font-size: 12px;
+  .fields .field-row {
+    margin-top: 2px;
+  }
+
+  .fields .label {
     color: var(--muted);
-    margin-top: 4px;
+    margin-right: 4px;
   }
 
   .checkmark {
-    font-size: 20px;
-    margin-right: 12px;
+    font-size: 18px;
+    margin-right: 8px;
   }
 
   #empty-state {
@@ -152,6 +248,10 @@
     color: var(--muted);
     padding: 60px 20px;
     font-size: 14px;
+  }
+
+  @media (max-width: 640px) {
+    .columns { flex-direction: column; }
   }
 </style>
 </head>
@@ -172,7 +272,10 @@
 
 <div id="login-screen">
   <p style="margin-bottom: 12px; color: var(--muted);">Enter password to view payments</p>
-  <input type="password" id="login-password" placeholder="Password"><br>
+  <input type="password" id="login-password" placeholder="Password" autocapitalize="off" autocorrect="off" autocomplete="new-password" spellcheck="false"><br>
+  <label style="font-size:12px; color:var(--muted); display:block; margin-top:6px;">
+    <input type="checkbox" id="show-password-toggle"> Show password
+  </label>
   <button id="login-btn">Sign In</button>
   <p id="login-error"></p>
 </div>
@@ -211,78 +314,12 @@
   let firstLoad = true;
   let lastCount = 0;
 
-  document.getElementById("login-btn").addEventListener("click", () => {
-    const email = "hamerenohdemelash16@gmail.com";
-    const password = document.getElementById("login-password").value;
-
-    signInWithEmailAndPassword(auth, email, password)
-      .then(() => {
-        console.log("Signed in successfully");
-        loginScreenEl.style.display = "none";
-        feedEl.style.display = "flex";
-
-        const transactionsRef = query(ref(db, "transactions"), orderByChild("timestamp"), limitToLast(20));
-
-        onValue(transactionsRef, (snapshot) => {
-          if (!snapshot.exists()) return;
-
-          const entries = [];
-          snapshot.forEach((child) => {
-            entries.push(child.val());
-          });
-
-          entries.reverse();
-
-          feedEl.innerHTML = "";
-          if (emptyStateEl.parentNode) emptyStateEl.remove();
-
-          entries.forEach((data, index) => {
-            const card = document.createElement("div");
-            card.className = "payment-card" + (index === 0 ? " newest" : "");
-
-            const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-            card.innerHTML = `
-              <div>
-                <span class="checkmark">✅</span>
-                <span class="amount">${data.amount} ETB</span>
-              </div>
-              <div class="details">
-                <div class="payer">from ${data.payerName || 'Unknown'}</div>
-                <div class="meta">${data.source} · ${time} · Ref: ${data.txnId || 'N/A'}</div>
-              </div>
-            `;
-            feedEl.appendChild(card);
-          });
-
-          if (!firstLoad && entries.length > lastCount) {
-            playAlertSound();
-          }
-          lastCount = entries.length;
-          firstLoad = false;
-        }, (error) => {
-          console.error("Realtime Database error:", error);
-          document.getElementById("status-bar").innerHTML =
-            '<span style="color:#B03A2E">⚠ Connection error — check internet</span>';
-        });
-      })
-      .catch((error) => {
-        console.error("Sign-in failed:", error);
-        document.getElementById("login-error").textContent = "Wrong password";
-      });
-  });
-
-  function playAlertSound() {
-    const audio = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAAAAAAAAAAAAAAAAAAAAAA==");
-    audio.play().catch(() => {});
+  function isTelebirr(source) {
+    return (source || "").toLowerCase().includes("telebirr");
   }
 
-  function updateClock() {
-    document.getElementById("clock").textContent = new Date().toLocaleString();
+  function formatTime(ts) {
+    return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
   }
-  setInterval(updateClock, 1000);
-  updateClock();
-</script>
 
-</body>
-</html>
+  function renderCard(data, isNewest) {
