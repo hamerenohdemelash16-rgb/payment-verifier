@@ -38,6 +38,10 @@ class PaymentAlertActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.dismissButton).setOnClickListener { finish() }
     }
 
+    // Plays the phone's default notification sound so the shop worker hears
+    // confirmation even if they aren't looking at the screen. Wrapped in a
+    // try/catch since sound playback can fail on some devices/configurations,
+    // and a failed sound shouldn't crash the whole alert screen.
     private fun playAlertSound() {
         try {
             val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
