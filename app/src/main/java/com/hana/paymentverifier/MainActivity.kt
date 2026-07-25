@@ -26,6 +26,9 @@ class MainActivity : AppCompatActivity() {
         updateStatus()
     }
 
+    // Android requires the user to explicitly grant SMS permissions at runtime
+    // (not just in the manifest) for privacy reasons. This checks if we already
+    // have permission, and if not, shows the system permission dialog.
     private fun requestSmsPermissionIfNeeded() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS)
             != PackageManager.PERMISSION_GRANTED
@@ -38,6 +41,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Called automatically by Android after the user responds to the
+    // permission dialog (whether they tap Allow or Deny). We refresh the
+    // status text either way so the screen reflects the current state.
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
@@ -45,6 +51,8 @@ class MainActivity : AppCompatActivity() {
         updateStatus()
     }
 
+    // Updates the on-screen status message so the shop owner can glance at
+    // the phone and immediately know if the app is working or needs attention.
     private fun updateStatus() {
         val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) ==
                 PackageManager.PERMISSION_GRANTED
