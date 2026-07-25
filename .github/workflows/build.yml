@@ -1,5 +1,4 @@
 name: Build APK
-
 # Runs automatically whenever you push code, and can also be triggered
 # manually from the "Actions" tab on GitHub (useful for a Chromebook —
 # no local Android Studio needed at all).
@@ -7,29 +6,25 @@ on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
-
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.4'
-
+      - name: Restore google-services.json from secret
+        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
-
       - name: Upload APK as a downloadable artifact
         uses: actions/upload-artifact@v4
         with:
