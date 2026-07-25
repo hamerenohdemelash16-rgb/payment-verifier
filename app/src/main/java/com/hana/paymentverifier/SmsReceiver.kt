@@ -20,9 +20,12 @@ import java.util.regex.Pattern
  */
 class SmsReceiver : BroadcastReceiver() {
 
+    // Entry point — Android calls this automatically whenever any SMS arrives.
+    // We first check it's actually an SMS-received event, then loop through
+    // every message in the intent (a single SMS can sometimes arrive as
+    // multiple parts/messages bundled together).
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
-
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
         for (sms in messages) {
             val sender = sms.originatingAddress ?: ""
@@ -44,7 +47,11 @@ class SmsReceiver : BroadcastReceiver() {
             }
     }
 
- private fun isPaymentSms(sender: String, body: String): Boolean {
+ // Decides whether an incoming SMS is actually a payment confirmation,
+// not just any message from a bank/telecom number (e.g. balance checks,
+// promotions). We require BOTH a recognizable sender/provider AND
+// payment-related keywords in the body before treating it as a real transaction.
+private fun isPaymentSms(sender: String, body: String): Boolean {
     val senderMatch = sender.contains("CBE", true) ||
             sender.contains("telebirr", true) ||
             sender.trim() == "127"
@@ -108,6 +115,10 @@ private fun extractTxnId(body: String): String {
     return "N/A"
 }
 
+    // Writes the parsed transaction to Firebase Realtime Database so the
+    // web dashboard picks it up instantly via its live listener. Despite the
+    // function name mentioning "Firestore", this actually uses Realtime
+    // Database (FirebaseDatabase) — naming leftover from an earlier version.
     private fun savePaymentToFirestore(
         source: String,
         amount: String,
