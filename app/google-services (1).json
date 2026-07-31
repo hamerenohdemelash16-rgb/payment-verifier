@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "175284774843",
+    "firebase_url": "https://payment-verifier-44099-default-rtdb.firebaseio.com",
+    "project_id": "payment-verifier-44099",
+    "storage_bucket": "payment-verifier-44099.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:175284774843:android:042d5618820980cf40469e",
+        "android_client_info": {
+          "package_name": "com.hana.paymentverifier"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyARhzrzeT2Ypagv330GJasaIqbXBwnrtrc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
