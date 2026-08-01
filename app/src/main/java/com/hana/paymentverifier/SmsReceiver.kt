@@ -4,20 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
-import android.telephony.SmsMessage
 import android.util.Log
 import com.google.firebase.database.FirebaseDatabase
 import java.util.regex.Pattern
 
-/**
- * Listens for incoming SMS. When a message comes from CBE or Telebirr,
- * it extracts the amount + sender name and pushes it to Firebase Firestore
- * so the shop dashboard can show it instantly.
- *
- * NOTE: The regex patterns below are a starting point based on common
- * CBE/Telebirr SMS formats. Once you have real sample messages, test them
- * against these patterns and adjust — bank SMS wording can vary slightly.
- */
 class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -45,28 +35,23 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     private fun isPaymentSms(sender: String, body: String): Boolean {
-        val normalizedSender = sender.replace(" ", "") // handles "Tele Birr" vs "telebirr"
+        val normalizedSender = sender.replace(" ", "")
         val senderMatch = sender.contains("CBE", true) ||
                 normalizedSender.contains("telebirr", true) ||
-                sender.trim() == "127" // Telebirr sends from this short code, not a name
+                sender.trim() == "127"
 
-        // Language-agnostic check: does the message contain a decimal amount
-        // (e.g. "300.00", "1,565.00", "5.00")? Numbers look the same whether
-        // the rest of the message is in English or Amharic, so this avoids
-        // relying on exact wording/encoding of non-Latin text.
         val hasAmountPattern = Pattern.compile("\\d[\\d,]*\\.\\d{2}").matcher(body).find()
 
-        // Extra safety net in case the sender ID is something we don't recognize
         val bodyNamesProvider = body.contains("telebirr", true) ||
+                body.contains("Tele Birr", true) ||
                 body.contains("CBE", true) ||
                 body.contains("cbe.com.et", true) ||
-                body.contains("ቴሌብር") || // Amharic: "Telebirr"
-                body.contains("ተቀብለዋል") // Amharic: "received"
+                body.contains("ቴሌብር") ||
+                body.contains("ተቀብለዋል")
 
         return (senderMatch || bodyNamesProvider) && hasAmountPattern
     }
 
-    // Matches things like "ETB 150.00", "Birr 150", "150.00 ETB", or Amharic "150.00 ብር"
     private fun extractAmount(body: String): String? {
         val pattern = Pattern.compile(
             "(?:ETB|Birr)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)|([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:ETB|Birr|ብር)",
@@ -78,40 +63,31 @@ class SmsReceiver : BroadcastReceiver() {
         } else null
     }
 
-    // Telebirr (English): "...from MULUKEN BELAY(2519****3999)..." -> name comes right before "("
-    // Telebirr (Amharic): "...ከ Hana Leykun(2519****8747)..." -> same idea, "ከ" means "from"
-    // CBE (with name):    "...from account 1**5595 (Tigist Wodajo Abebe)..." -> name is INSIDE parentheses
-    // CBE (no name):      "...has been credited with ETB 25800.00..." -> no payer name in the message at all
     private fun extractPayerName(body: String): String {
-        // Try CBE format first (name inside parentheses, after "account")
+        // CBE format
         val cbePattern = Pattern.compile("from account\\s+\\S+\\s*\\(([^)]+)\\)", Pattern.CASE_INSENSITIVE)
         val cbeMatcher = cbePattern.matcher(body)
         if (cbeMatcher.find()) {
             return cbeMatcher.group(1)?.trim() ?: "Unknown"
         }
 
-        // Try Telebirr English format (name right before an opening parenthesis)
+        // Telebirr English format
         val telebirrPattern = Pattern.compile("from\\s+([A-Za-z]+(?:\\s+[A-Za-z]+)*)\\s*\\(", Pattern.CASE_INSENSITIVE)
         val telebirrMatcher = telebirrPattern.matcher(body)
         if (telebirrMatcher.find()) {
             return telebirrMatcher.group(1)?.trim() ?: "Unknown"
         }
 
-        // Try Telebirr Amharic format: "ከ NAME("
+        // Telebirr Amharic format: "ከ [Name]([Phone])" -> e.g., "ከ Hana Leykun(2519****8747)"
         val telebirrAmharicPattern = Pattern.compile("ከ\\s+([A-Za-z]+(?:\\s+[A-Za-z]+)*)\\s*\\(")
         val telebirrAmharicMatcher = telebirrAmharicPattern.matcher(body)
         if (telebirrAmharicMatcher.find()) {
             return telebirrAmharicMatcher.group(1)?.trim() ?: "Unknown"
         }
 
-        // Some CBE messages don't include the payer's name at all — nothing to extract
         return "Unknown"
     }
 
-    // Telebirr (English): "...Your transaction number is DGB8QPUBWO..."
-    // Telebirr (Amharic): "...የሂሳብ እንቅስቃሴ ቁጥርዎ DH28G8TP82 ነዉ..." -> "ቁጥርዎ" means "your number"
-    // CBE: no explicit transaction number in the text, but the receipt URL ends with
-    // a unique code (e.g. ".../v2-hfHCxzWhzPvPbLQUcKY0" or ".../BranchReceipt/FT26...")
     private fun extractTxnId(body: String): String {
         val telebirrPattern = Pattern.compile("transaction number is\\s+([A-Za-z0-9]+)", Pattern.CASE_INSENSITIVE)
         val telebirrMatcher = telebirrPattern.matcher(body)
@@ -119,13 +95,13 @@ class SmsReceiver : BroadcastReceiver() {
             return telebirrMatcher.group(1) ?: "N/A"
         }
 
+        // Telebirr Amharic format: "ቁጥርዎ [TxnId]" -> e.g., "ቁጥርዎ DH25G9856V"
         val telebirrAmharicPattern = Pattern.compile("ቁጥርዎ\\s+([A-Za-z0-9]+)")
         val telebirrAmharicMatcher = telebirrAmharicPattern.matcher(body)
         if (telebirrAmharicMatcher.find()) {
             return telebirrAmharicMatcher.group(1) ?: "N/A"
         }
 
-        // Allow for an optional ":port" in the URL (e.g. cbe.com.et:100/...)
         val cbePattern = Pattern.compile("cbe\\.com\\.et(?::\\d+)?/(\\S+)", Pattern.CASE_INSENSITIVE)
         val cbeMatcher = cbePattern.matcher(body)
         if (cbeMatcher.find()) {
@@ -152,14 +128,11 @@ class SmsReceiver : BroadcastReceiver() {
             "timestamp" to System.currentTimeMillis(),
             "verified" to true
         )
-        // push() creates a unique auto-generated key for each new payment
         db.push().setValue(payment)
             .addOnSuccessListener { Log.d("SmsReceiver", "Payment saved: $amount from $payerName") }
             .addOnFailureListener { e -> Log.e("SmsReceiver", "Failed to save payment", e) }
     }
 
-    // Shows a big full-screen alert directly on this phone too (useful if this
-    // IS the shop's counter phone — see README "Option A" setup)
     private fun showFullScreenAlert(context: Context, source: String, amount: String, payerName: String) {
         val alertIntent = Intent(context, PaymentAlertActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
