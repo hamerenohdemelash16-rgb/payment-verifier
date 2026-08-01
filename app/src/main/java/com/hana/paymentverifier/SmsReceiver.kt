@@ -51,21 +51,23 @@ class SmsReceiver : BroadcastReceiver() {
                 sender.trim() == "127" // Telebirr sends from this short code, not a name
         val bodyMatch = body.contains("credited", true) ||
                 body.contains("received", true) ||
-                body.contains("deposit", true)
+                body.contains("deposit", true) ||
+                body.contains("ተቀብለዋል") // Amharic: "received"
         // Fallback: even if the sender ID is an unrecognized short code, the message
         // body itself usually names the provider (e.g. "Thanks for Banking with CBE",
         // "using telebirr") — catch those cases too
         val bodyNamesProvider = body.contains("telebirr", true) ||
                 body.contains("CBE", true) ||
-                body.contains("cbe.com.et", true)
+                body.contains("cbe.com.et", true) ||
+                body.contains("ቴሌብር") // Amharic: "Telebirr"
 
         return (senderMatch || bodyNamesProvider) && bodyMatch
     }
 
-    // Matches things like "ETB 150.00", "Birr 150", "150.00 ETB"
+    // Matches things like "ETB 150.00", "Birr 150", "150.00 ETB", or Amharic "150.00 ብር"
     private fun extractAmount(body: String): String? {
         val pattern = Pattern.compile(
-            "(?:ETB|Birr)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)|([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:ETB|Birr)",
+            "(?:ETB|Birr)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)|([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:ETB|Birr|ብር)",
             Pattern.CASE_INSENSITIVE
         )
         val matcher = pattern.matcher(body)
@@ -74,8 +76,10 @@ class SmsReceiver : BroadcastReceiver() {
         } else null
     }
 
-    // Telebirr: "...from MULUKEN BELAY(2519****3999)..."  -> name comes right before "("
-    // CBE:      "...from account 1**5595 (Tigist Wodajo Abebe)..." -> name is INSIDE the parentheses
+    // Telebirr (English): "...from MULUKEN BELAY(2519****3999)..." -> name comes right before "("
+    // Telebirr (Amharic): "...ከ Hana Leykun(2519****8747)..." -> same idea, "ከ" means "from"
+    // CBE (with name):    "...from account 1**5595 (Tigist Wodajo Abebe)..." -> name is INSIDE parentheses
+    // CBE (no name):      "...has been credited with ETB 25800.00..." -> no payer name in the message at all
     private fun extractPayerName(body: String): String {
         // Try CBE format first (name inside parentheses, after "account")
         val cbePattern = Pattern.compile("from account\\s+\\S+\\s*\\(([^)]+)\\)", Pattern.CASE_INSENSITIVE)
@@ -84,19 +88,28 @@ class SmsReceiver : BroadcastReceiver() {
             return cbeMatcher.group(1)?.trim() ?: "Unknown"
         }
 
-        // Try Telebirr format (name right before an opening parenthesis)
+        // Try Telebirr English format (name right before an opening parenthesis)
         val telebirrPattern = Pattern.compile("from\\s+([A-Za-z]+(?:\\s+[A-Za-z]+)*)\\s*\\(", Pattern.CASE_INSENSITIVE)
         val telebirrMatcher = telebirrPattern.matcher(body)
         if (telebirrMatcher.find()) {
             return telebirrMatcher.group(1)?.trim() ?: "Unknown"
         }
 
+        // Try Telebirr Amharic format: "ከ NAME("
+        val telebirrAmharicPattern = Pattern.compile("ከ\\s+([A-Za-z]+(?:\\s+[A-Za-z]+)*)\\s*\\(")
+        val telebirrAmharicMatcher = telebirrAmharicPattern.matcher(body)
+        if (telebirrAmharicMatcher.find()) {
+            return telebirrAmharicMatcher.group(1)?.trim() ?: "Unknown"
+        }
+
+        // Some CBE messages don't include the payer's name at all — nothing to extract
         return "Unknown"
     }
 
-    // Telebirr: "...Your transaction number is DGB8QPUBWO..."
+    // Telebirr (English): "...Your transaction number is DGB8QPUBWO..."
+    // Telebirr (Amharic): "...የሂሳብ እንቅስቃሴ ቁጥርዎ DH28G8TP82 ነዉ..." -> "ቁጥርዎ" means "your number"
     // CBE: no explicit transaction number in the text, but the receipt URL ends with
-    // a unique code (e.g. ".../v2-hfHCxzWhzPvPbLQUcKY0") which works as a reference
+    // a unique code (e.g. ".../v2-hfHCxzWhzPvPbLQUcKY0" or ".../BranchReceipt/FT26...")
     private fun extractTxnId(body: String): String {
         val telebirrPattern = Pattern.compile("transaction number is\\s+([A-Za-z0-9]+)", Pattern.CASE_INSENSITIVE)
         val telebirrMatcher = telebirrPattern.matcher(body)
@@ -104,7 +117,14 @@ class SmsReceiver : BroadcastReceiver() {
             return telebirrMatcher.group(1) ?: "N/A"
         }
 
-        val cbePattern = Pattern.compile("cbe\\.com\\.et/(\\S+)", Pattern.CASE_INSENSITIVE)
+        val telebirrAmharicPattern = Pattern.compile("ቁጥርዎ\\s+([A-Za-z0-9]+)")
+        val telebirrAmharicMatcher = telebirrAmharicPattern.matcher(body)
+        if (telebirrAmharicMatcher.find()) {
+            return telebirrAmharicMatcher.group(1) ?: "N/A"
+        }
+
+        // Allow for an optional ":port" in the URL (e.g. cbe.com.et:100/...)
+        val cbePattern = Pattern.compile("cbe\\.com\\.et(?::\\d+)?/(\\S+)", Pattern.CASE_INSENSITIVE)
         val cbeMatcher = cbePattern.matcher(body)
         if (cbeMatcher.find()) {
             return cbeMatcher.group(1) ?: "N/A"
