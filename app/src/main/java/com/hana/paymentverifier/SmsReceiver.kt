@@ -6,33 +6,20 @@ import android.content.Intent
 import android.provider.Telephony
 import android.telephony.SmsMessage
 import android.util.Log
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import java.util.regex.Pattern
 
 /**
  * Listens for incoming SMS. When a message comes from CBE or Telebirr,
- * it extracts the amount + sender name and pushes it to Firebase Realtime
- * Database so the shop dashboard can show it instantly.
+ * it extracts the amount + sender name and pushes it to Firebase Firestore
+ * so the shop dashboard can show it instantly.
  *
  * NOTE: The regex patterns below are a starting point based on common
  * CBE/Telebirr SMS formats. Once you have real sample messages, test them
  * against these patterns and adjust — bank SMS wording can vary slightly.
- *
- * NOTE: Firebase security rules require authentication to read/write, so
- * this receiver signs in with a fixed account before saving any payment.
  */
 class SmsReceiver : BroadcastReceiver() {
 
-    // Same account created in Firebase Console → Authentication → Users.
-    // This lets the app satisfy the "auth != null && auth.uid === ..." rule.
-    private val FIREBASE_EMAIL = "hamerenohdemelash16@gmail.com"
-    private val FIREBASE_PASSWORD = "eyubaltena"
-
-    // Entry point — Android calls this automatically whenever any SMS arrives.
-    // We first check it's actually an SMS-received event, then loop through
-    // every message in the intent (a single SMS can sometimes arrive as
-    // multiple parts/messages bundled together).
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
@@ -50,27 +37,28 @@ class SmsReceiver : BroadcastReceiver() {
                 val source = if (sender.contains("CBE", true) || body.contains("CBE", true) || body.contains("cbe.com.et", true)) "CBE" else "Telebirr"
 
                 if (amount != null) {
-                    ensureSignedInThenSave(source, amount, payerName, txnId, body)
+                    savePaymentToFirestore(source, amount, payerName, txnId, body)
                     showFullScreenAlert(context, source, amount, payerName)
                 }
             }
         }
     }
 
-    // Decides whether an incoming SMS is actually a payment confirmation,
-    // not just any message from a bank/telecom number (e.g. balance checks,
-    // promotions). We require BOTH a recognizable sender/provider AND
-    // payment-related keywords in the body before treating it as a real transaction.
     private fun isPaymentSms(sender: String, body: String): Boolean {
+        val normalizedSender = sender.replace(" ", "") // handles "Tele Birr" vs "telebirr"
         val senderMatch = sender.contains("CBE", true) ||
-                sender.contains("telebirr", true) ||
-                sender.trim() == "127"
+                normalizedSender.contains("telebirr", true) ||
+                sender.trim() == "127" // Telebirr sends from this short code, not a name
         val bodyMatch = body.contains("credited", true) ||
                 body.contains("received", true) ||
                 body.contains("deposit", true)
+        // Fallback: even if the sender ID is an unrecognized short code, the message
+        // body itself usually names the provider (e.g. "Thanks for Banking with CBE",
+        // "using telebirr") — catch those cases too
         val bodyNamesProvider = body.contains("telebirr", true) ||
                 body.contains("CBE", true) ||
                 body.contains("cbe.com.et", true)
+
         return (senderMatch || bodyNamesProvider) && bodyMatch
     }
 
@@ -107,8 +95,8 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     // Telebirr: "...Your transaction number is DGB8QPUBWO..."
-    // CBE: no explicit transaction number, but the receipt URL ends with a unique
-    // code (e.g. ".../v2-hfHCxzWhzPvPbLQUcKY0") which works as a reference
+    // CBE: no explicit transaction number in the text, but the receipt URL ends with
+    // a unique code (e.g. ".../v2-hfHCxzWhzPvPbLQUcKY0") which works as a reference
     private fun extractTxnId(body: String): String {
         val telebirrPattern = Pattern.compile("transaction number is\\s+([A-Za-z0-9]+)", Pattern.CASE_INSENSITIVE)
         val telebirrMatcher = telebirrPattern.matcher(body)
@@ -125,37 +113,6 @@ class SmsReceiver : BroadcastReceiver() {
         return "N/A"
     }
 
-    // Makes sure we're authenticated with Firebase before writing. If already
-    // signed in from a previous SMS, this skips straight to saving. Otherwise
-    // it signs in first, then saves once that completes.
-    private fun ensureSignedInThenSave(
-        source: String,
-        amount: String,
-        payerName: String,
-        txnId: String,
-        rawSms: String
-    ) {
-        val auth = FirebaseAuth.getInstance()
-
-        if (auth.currentUser != null) {
-            savePaymentToFirestore(source, amount, payerName, txnId, rawSms)
-            return
-        }
-
-        auth.signInWithEmailAndPassword(FIREBASE_EMAIL, FIREBASE_PASSWORD)
-            .addOnSuccessListener {
-                Log.d("SmsReceiver", "Signed in to Firebase successfully")
-                savePaymentToFirestore(source, amount, payerName, txnId, rawSms)
-            }
-            .addOnFailureListener { e ->
-                Log.e("SmsReceiver", "Firebase sign-in failed, payment NOT saved", e)
-            }
-    }
-
-    // Writes the parsed transaction to Firebase Realtime Database so the
-    // web dashboard picks it up instantly via its live listener. Despite the
-    // function name mentioning "Firestore", this actually uses Realtime
-    // Database (FirebaseDatabase) — naming leftover from an earlier version.
     private fun savePaymentToFirestore(
         source: String,
         amount: String,
