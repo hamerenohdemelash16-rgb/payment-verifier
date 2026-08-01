@@ -1,288 +1,172 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shop Payment Monitor</title>
-<style>
-  :root {
-    --paper: #F6F3EC;
-    --ink: #1F2A24;
-    --confirmed-green: #1E5B3A;
-    --confirmed-green-light: #E6F1EB;
-    --gold-accent: #B08A3E;
-    --muted: #7A8079;
-  }
+package com.hana.paymentverifier
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.provider.Telephony
+import android.telephony.SmsMessage
+import android.util.Log
+import com.google.firebase.database.FirebaseDatabase
+import java.util.regex.Pattern
 
-  body {
-    background: var(--paper);
-    color: var(--ink);
-    font-family: 'Courier New', 'Consolas', monospace;
-    min-height: 100vh;
-    padding: 24px;
-  }
+/**
+ * Listens for incoming SMS. When a message comes from CBE or Telebirr,
+ * it extracts the amount + sender name and pushes it to Firebase Firestore
+ * so the shop dashboard can show it instantly.
+ *
+ * NOTE: The regex patterns below are a starting point based on common
+ * CBE/Telebirr SMS formats. Once you have real sample messages, test them
+ * against these patterns and adjust — bank SMS wording can vary slightly.
+ */
+class SmsReceiver : BroadcastReceiver() {
 
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    border-bottom: 3px double var(--ink);
-    padding-bottom: 16px;
-    margin-bottom: 24px;
-  }
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
-  header h1 {
-    font-size: 22px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-  }
+        val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+        for (sms in messages) {
+            val sender = sms.originatingAddress ?: ""
+            val body = sms.messageBody ?: ""
 
-  header .amharic {
-    font-size: 14px;
-    color: var(--muted);
-    font-family: 'Nyala', 'Noto Sans Ethiopic', sans-serif;
-  }
+            Log.d("SmsReceiver", "SMS from $sender: $body")
 
-  #clock {
-    font-size: 14px;
-    color: var(--muted);
-  }
+            if (isPaymentSms(sender, body)) {
+                val amount = extractAmount(body)
+                val payerName = extractPayerName(body)
+                val txnId = extractTxnId(body)
+                val source = if (sender.contains("CBE", true) || body.contains("CBE", true) || body.contains("cbe.com.et", true)) "CBE" else "Telebirr"
 
-  #status-bar {
-    font-size: 12px;
-    color: var(--muted);
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
+                if (amount != null) {
+                    savePaymentToFirestore(source, amount, payerName, txnId, body)
+                    showFullScreenAlert(context, source, amount, payerName)
+                }
+            }
+        }
+    }
 
-  .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--confirmed-green);
-    display: inline-block;
-  }
+    private fun isPaymentSms(sender: String, body: String): Boolean {
+        val normalizedSender = sender.replace(" ", "") // handles "Tele Birr" vs "telebirr"
+        val senderMatch = sender.contains("CBE", true) ||
+                normalizedSender.contains("telebirr", true) ||
+                sender.trim() == "127" // Telebirr sends from this short code, not a name
 
-  #login-screen {
-    text-align: center;
-    padding: 60px 20px;
-  }
+        // Language-agnostic check: does the message contain a decimal amount
+        // (e.g. "300.00", "1,565.00", "5.00")? Numbers look the same whether
+        // the rest of the message is in English or Amharic, so this avoids
+        // relying on exact wording/encoding of non-Latin text.
+        val hasAmountPattern = Pattern.compile("\\d[\\d,]*\\.\\d{2}").matcher(body).find()
 
-  #login-screen input {
-    padding: 10px;
-    margin: 6px;
-    width: 220px;
-    border: 1px solid #DDD7C8;
-    font-family: 'Courier New', 'Consolas', monospace;
-  }
+        // Extra safety net in case the sender ID is something we don't recognize
+        val bodyNamesProvider = body.contains("telebirr", true) ||
+                body.contains("CBE", true) ||
+                body.contains("cbe.com.et", true) ||
+                body.contains("ቴሌብር") || // Amharic: "Telebirr"
+                body.contains("ተቀብለዋል") // Amharic: "received"
 
-  #login-screen button {
-    padding: 10px 24px;
-    margin-top: 10px;
-    background: var(--confirmed-green);
-    color: white;
-    border: none;
-    cursor: pointer;
-    font-family: 'Courier New', 'Consolas', monospace;
-  }
+        return (senderMatch || bodyNamesProvider) && hasAmountPattern
+    }
 
-  #login-error {
-    color: #B03A2E;
-    font-size: 12px;
-    margin-top: 10px;
-  }
+    // Matches things like "ETB 150.00", "Birr 150", "150.00 ETB", or Amharic "150.00 ብር"
+    private fun extractAmount(body: String): String? {
+        val pattern = Pattern.compile(
+            "(?:ETB|Birr)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)|([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:ETB|Birr|ብር)",
+            Pattern.CASE_INSENSITIVE
+        )
+        val matcher = pattern.matcher(body)
+        return if (matcher.find()) {
+            (matcher.group(1) ?: matcher.group(2))?.replace(",", "")
+        } else null
+    }
 
-  #feed {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
+    // Telebirr (English): "...from MULUKEN BELAY(2519****3999)..." -> name comes right before "("
+    // Telebirr (Amharic): "...ከ Hana Leykun(2519****8747)..." -> same idea, "ከ" means "from"
+    // CBE (with name):    "...from account 1**5595 (Tigist Wodajo Abebe)..." -> name is INSIDE parentheses
+    // CBE (no name):      "...has been credited with ETB 25800.00..." -> no payer name in the message at all
+    private fun extractPayerName(body: String): String {
+        // Try CBE format first (name inside parentheses, after "account")
+        val cbePattern = Pattern.compile("from account\\s+\\S+\\s*\\(([^)]+)\\)", Pattern.CASE_INSENSITIVE)
+        val cbeMatcher = cbePattern.matcher(body)
+        if (cbeMatcher.find()) {
+            return cbeMatcher.group(1)?.trim() ?: "Unknown"
+        }
 
-  .payment-card {
-    background: #FFFFFF;
-    border: 1px solid #DDD7C8;
-    border-left: 6px solid var(--confirmed-green);
-    padding: 20px 24px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    animation: slideIn 0.4s ease-out;
-  }
+        // Try Telebirr English format (name right before an opening parenthesis)
+        val telebirrPattern = Pattern.compile("from\\s+([A-Za-z]+(?:\\s+[A-Za-z]+)*)\\s*\\(", Pattern.CASE_INSENSITIVE)
+        val telebirrMatcher = telebirrPattern.matcher(body)
+        if (telebirrMatcher.find()) {
+            return telebirrMatcher.group(1)?.trim() ?: "Unknown"
+        }
 
-  .payment-card.newest {
-    border-left-color: var(--gold-accent);
-    background: var(--confirmed-green-light);
-  }
+        // Try Telebirr Amharic format: "ከ NAME("
+        val telebirrAmharicPattern = Pattern.compile("ከ\\s+([A-Za-z]+(?:\\s+[A-Za-z]+)*)\\s*\\(")
+        val telebirrAmharicMatcher = telebirrAmharicPattern.matcher(body)
+        if (telebirrAmharicMatcher.find()) {
+            return telebirrAmharicMatcher.group(1)?.trim() ?: "Unknown"
+        }
 
-  @keyframes slideIn {
-    from { opacity: 0; transform: translateY(-12px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+        // Some CBE messages don't include the payer's name at all — nothing to extract
+        return "Unknown"
+    }
 
-  .amount {
-    font-size: 32px;
-    font-weight: bold;
-    color: var(--confirmed-green);
-  }
+    // Telebirr (English): "...Your transaction number is DGB8QPUBWO..."
+    // Telebirr (Amharic): "...የሂሳብ እንቅስቃሴ ቁጥርዎ DH28G8TP82 ነዉ..." -> "ቁጥርዎ" means "your number"
+    // CBE: no explicit transaction number in the text, but the receipt URL ends with
+    // a unique code (e.g. ".../v2-hfHCxzWhzPvPbLQUcKY0" or ".../BranchReceipt/FT26...")
+    private fun extractTxnId(body: String): String {
+        val telebirrPattern = Pattern.compile("transaction number is\\s+([A-Za-z0-9]+)", Pattern.CASE_INSENSITIVE)
+        val telebirrMatcher = telebirrPattern.matcher(body)
+        if (telebirrMatcher.find()) {
+            return telebirrMatcher.group(1) ?: "N/A"
+        }
 
-  .details {
-    text-align: right;
-  }
+        val telebirrAmharicPattern = Pattern.compile("ቁጥርዎ\\s+([A-Za-z0-9]+)")
+        val telebirrAmharicMatcher = telebirrAmharicPattern.matcher(body)
+        if (telebirrAmharicMatcher.find()) {
+            return telebirrAmharicMatcher.group(1) ?: "N/A"
+        }
 
-  .payer {
-    font-size: 16px;
-    color: var(--ink);
-  }
+        // Allow for an optional ":port" in the URL (e.g. cbe.com.et:100/...)
+        val cbePattern = Pattern.compile("cbe\\.com\\.et(?::\\d+)?/(\\S+)", Pattern.CASE_INSENSITIVE)
+        val cbeMatcher = cbePattern.matcher(body)
+        if (cbeMatcher.find()) {
+            return cbeMatcher.group(1) ?: "N/A"
+        }
 
-  .meta {
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 4px;
-  }
+        return "N/A"
+    }
 
-  .checkmark {
-    font-size: 20px;
-    margin-right: 12px;
-  }
+    private fun savePaymentToFirestore(
+        source: String,
+        amount: String,
+        payerName: String,
+        txnId: String,
+        rawSms: String
+    ) {
+        val db = FirebaseDatabase.getInstance().getReference("transactions")
+        val payment = hashMapOf(
+            "source" to source,
+            "amount" to amount,
+            "payerName" to payerName,
+            "txnId" to txnId,
+            "rawSms" to rawSms,
+            "timestamp" to System.currentTimeMillis(),
+            "verified" to true
+        )
+        // push() creates a unique auto-generated key for each new payment
+        db.push().setValue(payment)
+            .addOnSuccessListener { Log.d("SmsReceiver", "Payment saved: $amount from $payerName") }
+            .addOnFailureListener { e -> Log.e("SmsReceiver", "Failed to save payment", e) }
+    }
 
-  #empty-state {
-    text-align: center;
-    color: var(--muted);
-    padding: 60px 20px;
-    font-size: 14px;
-  }
-</style>
-</head>
-<body>
-
-<header>
-  <div>
-    <h1>Shop Payment Monitor</h1>
-    <div class="amharic">የክፍያ ማረጋገጫ ማሳያ</div>
-  </div>
-  <div id="clock"></div>
-</header>
-
-<div id="status-bar">
-  <span class="dot"></span>
-  <span>Live — watching for CBE / Telebirr confirmations</span>
-</div>
-
-<div id="login-screen">
-  <p style="margin-bottom: 12px; color: var(--muted);">Enter password to view payments</p>
-  <input type="password" id="login-password" placeholder="Password"><br>
-  <button id="login-btn">Sign In</button>
-  <p id="login-error"></p>
-</div>
-
-<div id="feed" style="display:none;">
-  <div id="empty-state">No payments yet today. New payments will appear here automatically.</div>
-</div>
-
-<!-- Firebase SDKs -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import {
-    getDatabase, ref, query, orderByChild, limitToLast, onValue
-  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-  import {
-    getAuth, signInWithEmailAndPassword
-  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-
-  const firebaseConfig = {
-    apiKey: "AIzaSyDeO1gZ8a7weMl2dYLaegjRRPk11U7BGe4",
-    authDomain: "payment-verifier-44099.firebaseapp.com",
-    databaseURL: "https://payment-verifier-44099-default-rtdb.firebaseio.com",
-    projectId: "payment-verifier-44099",
-    storageBucket: "payment-verifier-44099.firebasestorage.app",
-    messagingSenderId: "175284774843",
-    appId: "1:175284774843:web:94b439a93b6115e740469e"
-  };
-
-  const app = initializeApp(firebaseConfig);
-  const db = getDatabase(app);
-  const auth = getAuth(app);
-
-  const feedEl = document.getElementById("feed");
-  const emptyStateEl = document.getElementById("empty-state");
-  const loginScreenEl = document.getElementById("login-screen");
-  let firstLoad = true;
-  let lastCount = 0;
-
-  document.getElementById("login-btn").addEventListener("click", () => {
-    const email = "hamerenohdemelash16@gmail.com";
-    const password = document.getElementById("login-password").value;
-
-    signInWithEmailAndPassword(auth, email, password)
-      .then(() => {
-        console.log("Signed in successfully");
-        loginScreenEl.style.display = "none";
-        feedEl.style.display = "flex";
-
-        const transactionsRef = query(ref(db, "transactions"), orderByChild("timestamp"), limitToLast(20));
-
-        onValue(transactionsRef, (snapshot) => {
-          if (!snapshot.exists()) return;
-
-          const entries = [];
-          snapshot.forEach((child) => {
-            entries.push(child.val());
-          });
-
-          entries.reverse();
-
-          feedEl.innerHTML = "";
-          if (emptyStateEl.parentNode) emptyStateEl.remove();
-
-          entries.forEach((data, index) => {
-            const card = document.createElement("div");
-            card.className = "payment-card" + (index === 0 ? " newest" : "");
-
-            const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-            card.innerHTML = `
-              <div>
-                <span class="checkmark">✅</span>
-                <span class="amount">${data.amount} ETB</span>
-              </div>
-              <div class="details">
-                <div class="payer">from ${data.payerName || 'Unknown'}</div>
-                <div class="meta">${data.source} · ${time} · Ref: ${data.txnId || 'N/A'}</div>
-              </div>
-            `;
-            feedEl.appendChild(card);
-          });
-
-          if (!firstLoad && entries.length > lastCount) {
-            playAlertSound();
-          }
-          lastCount = entries.length;
-          firstLoad = false;
-        }, (error) => {
-          console.error("Realtime Database error:", error);
-          document.getElementById("status-bar").innerHTML =
-            '<span style="color:#B03A2E">⚠ Connection error — check internet</span>';
-        });
-      })
-      .catch((error) => {
-        console.error("Sign-in failed:", error);
-        document.getElementById("login-error").textContent = "Wrong password";
-      });
-  });
-
-  function playAlertSound() {
-    const audio = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAAAAAAAAAAAAAAAAAAAAAA==");
-    audio.play().catch(() => {});
-  }
-
-  function updateClock() {
-    document.getElementById("clock").textContent = new Date().toLocaleString();
-  }
-  setInterval(updateClock, 1000);
-  updateClock();
-</script>
-
-</body>
-</html>
+    // Shows a big full-screen alert directly on this phone too (useful if this
+    // IS the shop's counter phone — see README "Option A" setup)
+    private fun showFullScreenAlert(context: Context, source: String, amount: String, payerName: String) {
+        val alertIntent = Intent(context, PaymentAlertActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra("source", source)
+            putExtra("amount", amount)
+            putExtra("payerName", payerName)
+        }
+        context.startActivity(alertIntent)
+    }
+}
