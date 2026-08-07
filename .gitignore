@@ -1,4 +1,6 @@
-*.iml
+# Excluded to prevent committing Firebase API keys/config publicly
+# (see README "Security" section for details on this fix)
+google-services.json*.iml
 .gradle
 /local.properties
 /.idea
