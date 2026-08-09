@@ -47,7 +47,8 @@ class SmsReceiver : BroadcastReceiver() {
                 body.contains("CBE", true) ||
                 body.contains("cbe.com.et", true) ||
                 body.contains("ቴሌብር") ||
-                body.contains("ተቀብለዋል")
+                body.contains("ተቀብለዋል") ||
+                body.contains("credited with", true)
 
         return (senderMatch || bodyNamesProvider) && hasAmountPattern
     }
@@ -64,11 +65,16 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     private fun extractPayerName(body: String): String {
-        // CBE format
+        // CBE format with explicit account name: "from account ... (Name)"
         val cbePattern = Pattern.compile("from account\\s+\\S+\\s*\\(([^)]+)\\)", Pattern.CASE_INSENSITIVE)
         val cbeMatcher = cbePattern.matcher(body)
         if (cbeMatcher.find()) {
             return cbeMatcher.group(1)?.trim() ?: "Unknown"
+        }
+
+        // CBE direct format: "has been credited with ETB ..." (often lacks a sender name in text)
+        if (body.contains("credited with", true)) {
+            return "Direct Deposit"
         }
 
         // Telebirr English format
@@ -78,7 +84,7 @@ class SmsReceiver : BroadcastReceiver() {
             return telebirrMatcher.group(1)?.trim() ?: "Unknown"
         }
 
-        // Telebirr Amharic format: "ከ [Name]([Phone])" -> e.g., "ከ Hana Leykun(2519****8747)"
+        // Telebirr Amharic format: "ከ [Name]([Phone])" -> handles any Latin character name right after "ከ"
         val telebirrAmharicPattern = Pattern.compile("ከ\\s+([A-Za-z]+(?:\\s+[A-Za-z]+)*)\\s*\\(")
         val telebirrAmharicMatcher = telebirrAmharicPattern.matcher(body)
         if (telebirrAmharicMatcher.find()) {
@@ -95,13 +101,14 @@ class SmsReceiver : BroadcastReceiver() {
             return telebirrMatcher.group(1) ?: "N/A"
         }
 
-        // Telebirr Amharic format: "ቁጥርዎ [TxnId]" -> e.g., "ቁጥርዎ DH25G9856V"
+        // Telebirr Amharic format: "ቁጥርዎ [TxnId]"
         val telebirrAmharicPattern = Pattern.compile("ቁጥርዎ\\s+([A-Za-z0-9]+)")
         val telebirrAmharicMatcher = telebirrAmharicPattern.matcher(body)
         if (telebirrAmharicMatcher.find()) {
             return telebirrAmharicMatcher.group(1) ?: "N/A"
         }
 
+        // CBE receipt link code extraction
         val cbePattern = Pattern.compile("cbe\\.com\\.et(?::\\d+)?/(\\S+)", Pattern.CASE_INSENSITIVE)
         val cbeMatcher = cbePattern.matcher(body)
         if (cbeMatcher.find()) {
