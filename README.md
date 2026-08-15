@@ -57,3 +57,45 @@ edge cases in SMS parsing.
 This isn't hypothetical — it's built for a real problem I saw firsthand at
 my family's shop. It's a small, focused fix to a trust gap that costs real
 merchants real money every day.
+
+## How to Test / Set Up
+
+### Try the live dashboard (fastest way to see it working)
+
+1. Open: https://hamerenohdemelash16-rgb.github.io/payment-verifier/dashboard/
+2. Enter the password: `eyubaltena`
+3. You'll see real transaction data, grouped by day, split between Telebirr
+   and CBE, each with running totals
+
+### Get the Android app
+
+The app is built automatically via GitHub Actions (no local Android Studio
+needed):
+
+1. Go to the Actions tab of this repo
+2. Click the most recent successful "Build APK" run (green checkmark)
+3. Scroll down to Artifacts and download `app-debug-apk`
+4. Transfer the `.apk` to an Android phone and install it (you may need to
+   allow "install from unknown sources")
+5. Open the app once to grant SMS permission — after that, it runs in the
+   background automatically
+
+### Replicate this yourself (full setup)
+
+1. Clone this repo
+2. Create your own Firebase project (Realtime Database + Authentication
+   with Email/Password enabled)
+3. Add your own `google-services.json` to `app/` (kept out of this repo —
+   see the Security section above for why), or add it as a GitHub Actions
+   secret named `GOOGLE_SERVICES_JSON` to use the existing CI build
+4. Update the Firebase config values in `dashboard/index.html` to match
+   your own project
+5. Update the Firebase security rules to require authentication, matching
+   the pattern in this project
+6. Build and run
+
+### What to expect when testing
+
+Since this connects to a real, shared Firebase database, you'll see real
+(anonymized) transaction data from ongoing testing — this is intentional,
+to demonstrate the full working pipeline rather than an empty demo state.
