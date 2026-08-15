@@ -99,3 +99,8 @@ needed):
 Since this connects to a real, shared Firebase database, you'll see real
 (anonymized) transaction data from ongoing testing — this is intentional,
 to demonstrate the full working pipeline rather than an empty demo state.
+
+## Development Story & Time Investment Note
+This was built as my very first major project. I built and developed the entire application from scratch—debugging errors, setting up the Android SMS parser, configuring Firebase, and creating the live web dashboard—long before I ever heard of Stardance. 
+
+Because I only published the repository to the platform after the project was already finished, the automated timer only captured the final setup phase (around 21 minutes). In reality, this project took over 5 hours of intensive coding, testing, and error-fixing to get working properly.
