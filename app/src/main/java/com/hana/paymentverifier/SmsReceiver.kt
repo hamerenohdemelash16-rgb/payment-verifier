@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import java.util.regex.Pattern
 
@@ -118,14 +119,16 @@ class SmsReceiver : BroadcastReceiver() {
         return "N/A"
     }
 
-    private fun savePaymentToFirestore(
+        private fun savePaymentToFirestore(
         source: String,
         amount: String,
         payerName: String,
         txnId: String,
         rawSms: String
     ) {
-        val db = FirebaseDatabase.getInstance().getReference("transactions")
+        val appEmail = "app@payment-verifier.com"
+        val appPassword = "1234qwerasdfzxcv"
+
         val payment = hashMapOf(
             "source" to source,
             "amount" to amount,
@@ -135,11 +138,24 @@ class SmsReceiver : BroadcastReceiver() {
             "timestamp" to System.currentTimeMillis(),
             "verified" to true
         )
-        db.push().setValue(payment)
-            .addOnSuccessListener { Log.d("SmsReceiver", "Payment saved: $amount from $payerName") }
-            .addOnFailureListener { e -> Log.e("SmsReceiver", "Failed to save payment", e) }
-    }
 
+        fun writePayment() {
+            FirebaseDatabase.getInstance().getReference("transactions")
+                .push()
+                .setValue(payment)
+                .addOnSuccessListener { Log.d("SmsReceiver", "Payment saved: $amount from $payerName") }
+                .addOnFailureListener { e -> Log.e("SmsReceiver", "Failed to save payment", e) }
+        }
+
+        val auth = FirebaseAuth.getInstance()
+        if (auth.currentUser?.email == appEmail) {
+            writePayment()
+        } else {
+            auth.signInWithEmailAndPassword(appEmail, appPassword)
+                .addOnSuccessListener { writePayment() }
+                .addOnFailureListener { e -> Log.e("SmsReceiver", "App sign-in failed", e) }
+        }
+    }
     private fun showFullScreenAlert(context: Context, source: String, amount: String, payerName: String) {
         val alertIntent = Intent(context, PaymentAlertActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
